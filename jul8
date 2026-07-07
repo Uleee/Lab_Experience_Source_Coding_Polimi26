@@ -1,0 +1,66 @@
+%% 4 state markov source 
+% let 1 2 3 represent 4 states 
+% 1-> 00 2-> 01 3-> 10 4->11
+% 5 state markov process : 1-> 000 2
+
+clc
+clear 
+LUT = [0 0;0 1;1 0;1 1];
+N = 512; 
+u = zeros(1,N); 
+T = [0.75 0.1 0.1 0.05;
+     0.1 0.7 0.1 0.1; 
+     0.05 0.05 0.8 0.1; 
+     0.02 0.03 0.15 0.8]; % transition matrix
+
+[u,bitstream] = markov_4(T,N,LUT);
+
+[L_bwt,idx,bwt_sorted] = bwt(u,N);
+
+[a_recovered] = inv_bwt(L_bwt,idx,N);
+
+P = piecewise_pmf_estimation(bwt_sorted,N,LUT);
+
+
+X = reshape(bitstream.', 1, []);
+N = numel(X);
+[u_true,G_base] = polar_transform(N,X); 
+y = zeros(1,N); 
+
+
+LLR = zeros(1,N)+log((P(1,:))/P(2,:));
+
+idx = 0; 
+
+[~,~,T,~,LLRset] = non_standard_sc_encoder_zhao_ren(LLR,N,[],u_true,idx,[],[]);
+
+eps_fixed = 1/(log2(N)); 
+fixed_llr_thr = log((1-eps_fixed)/(eps_fixed)); 
+
+if isempty(T)  
+    llr_thr = 0; 
+else
+    llr_thr = max(abs(LLRset(T))); 
+end
+
+G = find(abs(LLRset) <= llr_thr);
+G_fix = find(abs(LLRset) <= fixed_llr_thr);
+G_fixed_star = intersect(setdiff(G, G_fix), T);
+
+u_G_fix=u_true(G_fix); 
+
+idx = 0; 
+idx_u = 0;
+[u,u_hat,idx] = non_standard_sc_decoder_zhao_ren_fixed_thr(LLR,N,[],idx,idx_u,llr_thr,fixed_llr_thr,u_G_fix,G_fixed_star);
+
+X_est = mod(u_hat*G_base,2);
+
+check=(X_est==X);
+
+if all(check)
+    disp('The sequences match perfectly');
+else
+    disp('There are some errors in the reconstruction.');
+end
+
+
