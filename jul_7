@@ -1,0 +1,143 @@
+%% 4 state markov source 
+% let 1 2 3 represent 4 states 
+% 1-> 00 2-> 01 3-> 10 4->11
+% 5 state markov process : 1-> 000 2
+
+clc
+clear 
+LUT = [0 0;0 1;1 0;1 1];
+N = 16; 
+u = zeros(1,N); 
+T = [0.75 0.1 0.1 0.05;
+     0.1 0.7 0.1 0.1; 
+     0.05 0.05 0.8 0.1; 
+     0.02 0.03 0.15 0.8]; % transition matrix
+u(1) =  randi(4); 
+% a1 = cumsum(T(1,:)); 
+% a2 = cumsum(T(2,:)); 
+% a3 = cumsum(T(3,:)); 
+% a4 = cumsum(T(4,:)); 
+
+for i = 2:N 
+    p_t = rand(); 
+    interval = cumsum(T(u(i-1),:));
+    u(i)=find(p_t<=interval,1,'first'); % first true 
+    % if p_t < T(u(i-1),1)
+    %     u(i) = 1;
+    % else
+    %     u(i) =0; 
+    % end 
+end 
+bitstream=LUT(u,:);
+bitstream = reshape(bitstream.', 1, []);
+
+
+bwt(1,:)=u; 
+
+for i = 2:N
+    bwt(i,:)=circshift(u,-1*i+1); 
+end 
+bwt_sorted = sortrows(bwt); 
+A=all(bwt_sorted==u,2);
+idx = find(A); 
+
+output = [bwt_sorted(:,end)' idx];
+
+%% inverse BWT 
+L_bwt = output(1:end-1);
+
+idx_bwt = output(end);
+
+M = sort(L_bwt(:)); 
+
+for i = 2:N
+    M = [L_bwt(:) M]; 
+    M = sortrows(M); 
+end
+
+a_recovered = M(idx_bwt,:); 
+
+
+% estimate probability 
+% 2 2 2 2 2 - 5 twos out of 16 
+% in binary 01 01 01 01 01 - 5 ones 5 zeros out of 32
+
+%% POLAR ENCODER/DECODER 
+
+%% Task 1 
+
+% LLR = zeros(1,N)+log((1-p)/p);
+% frozen_ind = zeros(1, N);
+
+
+
+bwt_col_1 = bwt_sorted(:, 1); 
+
+cross_flag = [true; diff(bwt_col_1) ~= 0]; 
+starts = find(cross_flag);
+ends = [starts(2:end) - 1; N];
+
+bitstream=LUT(L_bwt,:);
+X = reshape(bitstream.', 1, []);
+N = numel(X);
+[u_true,G_base] = polar_transform(N,X); 
+y = zeros(1,N); 
+
+P = zeros(N, 2); 
+
+for i = 1:numel(ends)
+    symbols = L_bwt(starts(i):ends(i));
+    bits = LUT(symbols, :);
+    p1 = sum(bits(:) == 1) / numel(bits); 
+    p2 = sum(bits(:) == 0) / numel(bits); 
+    bit_start = 2 * starts(i) - 1;
+    bit_end   = 2 * ends(i);
+    P(bit_start:bit_end, 1) = p1;  
+    P(bit_start:bit_end, 2) = p2;
+end
+
+
+
+
+
+%% POLAR ENCODER/DECODER 
+%% Task 1 
+
+% P = zeros(N,2); 
+% 
+% for i = 1:(numel(ends))
+% int = vals(i); 
+% bit=LUT(int,:); 
+% p1 = sum(bit==1)/numel(bit); 
+% p2 = sum(bit==0)/numel(bit); 
+% bit_start = 2*starts(i)-1;
+% bit_end   = 2*ends(i);
+% P(bit_start:bit_end, 1)=p1;  
+% P(bit_start:bit_end, 2)=p2;
+% end 
+
+idx=0; 
+[~,~,h_set,~,T]=standard_sc_encoder_zhao_ren(P,N,[],[],u_true,idx,[]);
+
+if isempty(T) % sometimes T can be empty (for allzero u_true)
+    h_thr = 0.05; 
+else
+    h_thr = min(h_set(T)); ∂
+end
+
+G = find(h_set >= h_thr);
+u_G = u_true(G); 
+
+idx = 1; % tau pointter
+
+[u,u_hat,idx]=standard_sc_decoder_zhao_ren(P,N,[],idx,h_thr,u_G); 
+
+X_est = mod(u_hat*G_base,2);
+
+check=(X_est==X);
+
+if all(check)
+    disp('The sequences match perfectly');
+else
+    disp('There are some errors in the reconstruction.');
+end
