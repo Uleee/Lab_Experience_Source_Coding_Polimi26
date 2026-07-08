@@ -1,0 +1,82 @@
+%% 4 state markov source 
+% let 1 2 3 represent 4 states 
+% 1-> 00 2-> 01 3-> 10 4->11
+% 5 state markov process : 1-> 000 2
+
+clc
+clear 
+LUT = [0 0;0 1;1 0;1 1];
+N_symb = 1024; 
+% T_mat = [0.75 0.1 0.1 0.05;
+%      0.1 0.7 0.1 0.1; 
+%      0.05 0.05 0.8 0.1; 
+%      0.02 0.03 0.15 0.8]; % transition matrix H(x) = 1.095 
+T_mat =   [0.9269    0.0244    0.0244    0.0244;
+               0.0244    0.9269    0.0244    0.0244;
+               0.0244    0.0244    0.9269    0.0244;
+               0.0244    0.0244    0.0244    0.9269]; % H(X) = 0.4936
+
+M = 1; 
+
+for m = 1:M 
+u = zeros(1,N_symb); 
+
+[u,X] = markov_4(T_mat,N_symb,LUT);
+
+[L_bwt,idx,bwt_sorted] = bwt(u,N_symb);
+
+[a_recovered] = inv_bwt(L_bwt,idx,N_symb);
+
+P = piecewise_pmf_estimation(bwt_sorted,N_symb,LUT);
+
+N_bits = numel(X);
+[u_true,G_base] = polar_transform(N_bits,X); 
+y = zeros(1,N_bits); 
+
+
+LLR = log(P(:, 1) ./ P(:, 2)).';
+
+idx = 0; 
+
+[~,~,T,~,LLRset] = non_standard_sc_encoder_zhao_ren(LLR,N_bits,[],u_true,idx,[],[]);
+
+eps_fixed = 1/(log2(N_bits)); 
+fixed_llr_thr = log((1-eps_fixed)/(eps_fixed)); 
+
+if isempty(T)  
+    llr_thr = 0; 
+else
+    llr_thr_max = max(abs(LLRset(T))); 
+    abs_llr = abs(LLRset(T));
+    llr_thr = max(abs_llr(isfinite(abs_llr)));
+end
+%%
+fixed_llr_thr=llr_thr;
+
+%%
+
+
+G = find(abs(LLRset) <= llr_thr);
+G_fix = find(abs(LLRset) <= fixed_llr_thr);
+G_fixed_star = intersect(setdiff(G, G_fix), T);
+
+u_G_fix=u_true(G_fix); 
+
+idx = 0; 
+idx_u = 0;
+[u,u_hat,idx] = non_standard_sc_decoder_zhao_ren_fixed_thr(LLR,N_bits,[],idx,idx_u,llr_thr,fixed_llr_thr,u_G_fix,G_fixed_star);
+
+EL(m) = log2(N_bits)+numel(G_fix)+numel(G_fixed_star)*(log2(N_bits));  
+ER(m) = EL(m)/N_symb; 
+
+end 
+
+
+LLR_thresholds = sort(LLRset,'descend'); 
+plot(LLR_thresholds)
+
+
+
+
+
+
