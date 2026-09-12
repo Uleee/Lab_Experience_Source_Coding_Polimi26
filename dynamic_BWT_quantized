@@ -1,0 +1,63 @@
+%% Polar encoder with quantized threshold, adaptive scale (3+5) 
+clc
+clear
+M = 1; 
+N = 1024; 
+p = 0.9177;
+
+for m = 1:M 
+
+u = markov_binary(N,p); 
+
+[L_bwt,idx_bwt,bwt_sorted] = bwt(u,N);
+first_col = bwt_sorted(:,1); 
+
+P = pmf_est_bwt(bwt_sorted);
+
+h2p = -p.*log2(p)-(1-p).*log2(1-p); 
+h = (h2p+2-2*p)/(3-2*p); % with p = 0.9177, H(X) = 0.4936
+
+[u_true] = polar_transform(N,L_bwt); 
+
+LLR = log(P(:, 1) ./ P(:, 2)).';
+
+idx = 0; 
+
+[~,~,T,~,LLRset] = non_standard_sc_encoder_zhao_ren(LLR,N,[],u_true,idx,[],[]);
+
+if isempty(T)  
+    llr_thr = 0; 
+else
+    llr_thr = max(abs(LLRset(T))); 
+end
+
+B_scale = 3;
+B_quantiz = 5; 
+scale_lvl = [3,4,5,6,7,8,9,10]; 
+scale_idx = find(scale_lvl >= llr_thr, 1, 'first');
+M_dyn = scale_lvl(scale_idx);
+                      
+delta = M_dyn / (2^B_quantiz - 1);  
+mant_idx = min(2^B_quantiz - 1, ceil(llr_thr / delta));
+llr_thr_quant = mant_idx * delta;
+
+G_dyn = find(abs(LLRset) <= llr_thr_quant); 
+
+EL(m) = log2(N)+ B_scale + B_quantiz + numel(G_dyn);
+% ER_dynamic = EL_dynamic / N;
+ER(m) = EL(m)/N; 
+end
+
+%1: log2(N) - BWT index 
+%2: log2(N) - polar header bits 
+%3: threshold storage bits 
+%4: G set
+
+% histogram(ER) 
+% xline(0.4936)
+% hold on 
+% histogram(ER_1024_ft)
+% legend('dyn_thr','fixed_thr')
+
+
+
