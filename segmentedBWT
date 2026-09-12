@@ -1,0 +1,74 @@
+%% BWT + Context-Transition Segmented PE (Optimized)
+
+clc
+clear
+M = 1; 
+N = 2048; 
+p = 0.9177; 
+ER = zeros(1, M);
+
+for m = 1:M
+    u = markov_binary(N, p); 
+    [L_bwt, idx_bwt, bwt_sorted] = bwt(u, N);
+    last_col = bwt_sorted(:, end);
+    wind = bwt_sorted(:, 1:2);
+    
+    P = pmf_est_bwt(bwt_sorted);
+    LLR_full = log(P(:, 1) ./ P(:, 2)).';
+    
+    contexts = { ...
+        (wind(:,1) == 0 & wind(:,2) == 0), ...
+        (wind(:,1) == 0 & wind(:,2) == 1), ...
+        (wind(:,1) == 1 & wind(:,2) == 0), ...
+        (wind(:,1) == 1 & wind(:,2) == 1)  ...
+    };
+
+    EL_total = log2(N) + 3 * log2(N); 
+    
+    for c = 1:4
+        mask = contexts{c};
+        
+        L_ctx_raw = last_col(mask);
+        LLR_ctx_raw = LLR_full(mask).';  
+        
+        L_k = numel(L_ctx_raw);
+        if L_k == 0
+            continue; 
+        end
+        
+        n_exp = ceil(log2(L_k));
+        N_seg = 2^n_exp;
+        
+       
+        L_ctx = padarray(L_ctx_raw, [N_seg - L_k, 0], 0, 'post')';
+        LLR_ctx = padarray(LLR_ctx_raw, [N_seg - L_k, 0], inf, 'post')';
+        
+        [u_true_seg, ~] = polar_transform(N_seg, L_ctx); 
+        
+        idx = 0;
+        [~, ~, T_seg, ~, LLRset_seg] = non_standard_sc_encoder_zhao_ren(LLR_ctx, N_seg, [], u_true_seg, idx, [], []);
+        
+        eps_fixed_seg = 1 / log2(N_seg); 
+        fixed_llr_thr_seg = log((1 - eps_fixed_seg) / eps_fixed_seg); 
+        
+        if isempty(T_seg)  
+            llr_thr_seg = 0.01; 
+        else
+            llr_thr_seg = max(abs(LLRset_seg(T_seg))); 
+        end
+        llr_thr_hist(c) = llr_thr_seg;
+        
+        G_seg = find(abs(LLRset_seg) <= llr_thr_seg);
+        G_fix_seg = find(abs(LLRset_seg) <= fixed_llr_thr_seg);
+        G_fixed_star_seg = intersect(setdiff(G_seg, G_fix_seg), T_seg);
+        
+        EL_seg = numel(G_fix_seg) + numel(G_fixed_star_seg) * log2(N_seg);
+        
+        EL_total = EL_total + EL_seg;
+    end
+    
+    ER(m) = EL_total / N;
+end 
+
+histogram(ER)
+mean_ER = mean(ER)
